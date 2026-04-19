@@ -861,69 +861,129 @@ export default function App() {
 
   return (
     <main
-      className={`flex min-h-screen items-start justify-center bg-[var(--app-bg)] bg-cover bg-center bg-no-repeat px-4 py-56 text-[var(--text-primary)] transition-colors sm:px-6 sm:py-64 lg:items-center lg:py-8 ${
+      className={`flex min-h-screen items-start justify-center bg-[var(--app-bg)] bg-cover bg-center bg-no-repeat px-4 py-10 text-[var(--text-primary)] transition-colors sm:px-6 sm:py-64 lg:items-center lg:py-8 ${
         isDarkMode ? "dark" : ""
       }`}
       style={appBackgroundStyle}
     >
-      {isPlaylistVisible ? (
-        <section className="brutalist-panel fixed left-3 top-3 z-40 w-[min(24rem,calc(100vw-1.5rem))] rounded-2xl border border-[var(--border-color)] bg-[var(--shell-bg)] p-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-widest text-[var(--text-heading)]">Playlist</p>
-            <button
-              aria-label="Close playlist"
-              className={`${outlineButtonClass} px-2 py-1 text-xs`}
-              onClick={() => setIsPlaylistVisible(false)}
-              type="button"
-            >
-              Close
-            </button>
-          </div>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <input
-              className={inputClass}
-              onChange={(event) => setPlaylistInput(event.target.value)}
-              placeholder="Paste YouTube playlist URL"
-              value={playlistInput}
-            />
-            <button
-              className={filledButtonClass}
-              onClick={applyPlaylist}
-              type="button"
-            >
-              Load
-            </button>
-          </div>
-          {playlistError ? (
-            <p className="mt-2 text-xs text-[var(--danger-text)]">{playlistError}</p>
-          ) : null}
-          {youtubeEmbedSrc ? (
-            <div className="brutalist-media relative mt-2 aspect-video overflow-hidden rounded-xl border border-[var(--border-color)]">
-              <iframe
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-                className="h-full w-full"
-                src={youtubeEmbedSrc}
-                title="Focus playlist player"
-              />
+      <div className="hidden sm:block">
+        {isPlaylistVisible ? (
+          <section className="brutalist-panel fixed left-3 top-3 z-40 w-[min(24rem,calc(100vw-1.5rem))] rounded-2xl border border-[var(--border-color)] bg-[var(--shell-bg)] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-widest text-[var(--text-heading)]">Playlist</p>
+              <button
+                aria-label="Close playlist"
+                className={`${outlineButtonClass} px-2 py-1 text-xs`}
+                onClick={() => setIsPlaylistVisible(false)}
+                type="button"
+              >
+                Close
+              </button>
             </div>
-          ) : (
-            <p className="mt-2 text-xs text-[var(--text-muted)]">
-              Paste a playlist URL with <code>list=</code>, then click Load.
-            </p>
-          )}
-        </section>
-      ) : (
-        <button
-          className={`${outlineButtonClass} fixed left-3 top-3 z-40`}
-          onClick={() => setIsPlaylistVisible(true)}
-          type="button"
-        >
-          Open playlist
-        </button>
-      )}
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input
+                className={inputClass}
+                onChange={(event) => setPlaylistInput(event.target.value)}
+                placeholder="Paste YouTube playlist URL"
+                value={playlistInput}
+              />
+              <button
+                className={filledButtonClass}
+                onClick={applyPlaylist}
+                type="button"
+              >
+                Load
+              </button>
+            </div>
+            {playlistError ? (
+              <p className="mt-2 text-xs text-[var(--danger-text)]">{playlistError}</p>
+            ) : null}
+            {youtubeEmbedSrc ? (
+              <div className="brutalist-media relative mt-2 aspect-video overflow-hidden rounded-xl border border-[var(--border-color)]">
+                <iframe
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="h-full w-full"
+                  src={youtubeEmbedSrc}
+                  title="Focus playlist player"
+                />
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                Paste a playlist URL with <code>list=</code>, then click Load.
+              </p>
+            )}
+          </section>
+        ) : (
+          <button
+            className={`${outlineButtonClass} fixed left-3 top-3 z-40`}
+            onClick={() => setIsPlaylistVisible(true)}
+            type="button"
+          >
+            Open playlist
+          </button>
+        )}
+      </div>
 
       <div className="brutalist-panel mx-auto w-[min(38rem,calc(100vw-2rem))] rounded-3xl bg-[var(--shell-bg)] p-4 sm:w-[min(38rem,calc(100vw-3rem))] sm:p-6">
+        <div className="mb-4 sm:hidden">
+          {isPlaylistVisible ? (
+            <section className="brutalist-panel rounded-2xl border border-[var(--border-color)] bg-[var(--panel-bg)] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs uppercase tracking-widest text-[var(--text-heading)]">Playlist</p>
+                <button
+                  aria-label="Close playlist"
+                  className={`${outlineButtonClass} px-2 py-1 text-xs`}
+                  onClick={() => setIsPlaylistVisible(false)}
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="mt-2 flex flex-col gap-2">
+                <input
+                  className={inputClass}
+                  onChange={(event) => setPlaylistInput(event.target.value)}
+                  placeholder="Paste YouTube playlist URL"
+                  value={playlistInput}
+                />
+                <button
+                  className={filledButtonClass}
+                  onClick={applyPlaylist}
+                  type="button"
+                >
+                  Load
+                </button>
+              </div>
+              {playlistError ? (
+                <p className="mt-2 text-xs text-[var(--danger-text)]">{playlistError}</p>
+              ) : null}
+              {youtubeEmbedSrc ? (
+                <div className="brutalist-media relative mt-2 aspect-video overflow-hidden rounded-xl border border-[var(--border-color)]">
+                  <iframe
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="h-full w-full"
+                    src={youtubeEmbedSrc}
+                    title="Focus playlist player"
+                  />
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-[var(--text-muted)]">
+                  Paste a playlist URL with <code>list=</code>, then click Load.
+                </p>
+              )}
+            </section>
+          ) : (
+            <button
+              className={`${outlineButtonClass} w-full justify-center`}
+              onClick={() => setIsPlaylistVisible(true)}
+              type="button"
+            >
+              Open playlist
+            </button>
+          )}
+        </div>
         <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex flex-wrap items-center justify-end gap-2">
             <ThemeToggle isDarkMode={isDarkMode} onToggle={() => setIsDarkMode((enabled) => !enabled)} />
