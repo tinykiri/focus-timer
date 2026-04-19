@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   tasks: "focus-timer-tasks",
   playlistInput: "focus-timer-playlist-input",
   playlistId: "focus-timer-playlist-id",
+  playlistVisible: "focus-timer-playlist-visible",
 };
 const BACKGROUND_BUCKET =
   import.meta.env.VITE_SUPABASE_STORAGE_BUCKET || "focus-backgrounds";
@@ -27,15 +28,13 @@ function parseStoredValue(key, fallback) {
   }
 }
 
-function formatCountdown(totalSeconds) {
+function formatCountdownSegments(totalSeconds) {
   const safeSeconds = Math.max(0, totalSeconds);
   const hours = Math.floor(safeSeconds / 3600);
   const minutes = Math.floor((safeSeconds % 3600) / 60);
   const seconds = safeSeconds % 60;
 
-  return [hours, minutes, seconds]
-    .map((value) => value.toString().padStart(2, "0"))
-    .join(":");
+  return [hours, minutes, seconds].map((value) => value.toString().padStart(2, "0"));
 }
 
 function getPlaylistId(input) {
@@ -72,38 +71,29 @@ function getTotalSeconds(hours, minutes) {
   return Math.floor(safeHours * 3600 + safeMinutes * 60);
 }
 
-function FlipCountdown({ text, isRunning }) {
-  const previousTextRef = useRef(text);
-  const previousText = previousTextRef.current || text;
+function FlipCountdown({ segments, isRunning }) {
+  const previousSegmentsRef = useRef(segments);
+  const previousSegments = previousSegmentsRef.current || segments;
 
   useEffect(() => {
-    previousTextRef.current = text;
-  }, [text]);
+    previousSegmentsRef.current = segments;
+  }, [segments]);
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
-      {text.split("").map((character, index) =>
-        character === ":" ? (
-          <span
-            className="flip-colon text-3xl sm:text-5xl md:text-6xl"
-            key={`separator-${index}`}
-          >
-            :
-          </span>
-        ) : (
-          <FlipDigit
-            key={`digit-${index}`}
-            previousValue={previousText[index] ?? character}
-            shouldAnimate={isRunning && previousText[index] !== character}
-            value={character}
-          />
-        ),
-      )}
+    <div className="flip-countdown">
+      {segments.map((segment, index) => (
+        <FlipSegment
+          key={`segment-${index}`}
+          previousValue={previousSegments[index] ?? segment}
+          shouldAnimate={isRunning && previousSegments[index] !== segment}
+          value={segment}
+        />
+      ))}
     </div>
   );
 }
 
-function FlipDigit({ value, previousValue, shouldAnimate }) {
+function FlipSegment({ value, previousValue, shouldAnimate }) {
   const [isFlipping, setIsFlipping] = useState(false);
   const [displayValue, setDisplayValue] = useState(value);
 
@@ -118,24 +108,24 @@ function FlipDigit({ value, previousValue, shouldAnimate }) {
     const timeoutId = window.setTimeout(() => {
       setDisplayValue(value);
       setIsFlipping(false);
-    }, 560);
+    }, 700);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
   }, [previousValue, shouldAnimate, value]);
 
-  const topValue = isFlipping ? previousValue : displayValue;
-  const bottomValue = isFlipping ? value : displayValue;
+  const topValue = isFlipping ? value : displayValue;
+  const bottomValue = displayValue;
 
   return (
-    <span className={`flip-digit ${isFlipping ? "is-flipping" : ""}`}>
-      <span className="digit-top">{topValue}</span>
-      <span className="digit-bottom">{bottomValue}</span>
+    <span className={`flip-segment ${isFlipping ? "is-flipping" : ""}`}>
+      <span className="flip-segment-top">{topValue}</span>
+      <span className="flip-segment-bottom">{bottomValue}</span>
       {isFlipping ? (
         <>
-          <span className="digit-fold-upper">{previousValue}</span>
-          <span className="digit-fold-lower">{value}</span>
+          <span className="flip-segment-top-flip">{previousValue}</span>
+          <span className="flip-segment-bottom-flip">{value}</span>
         </>
       ) : null}
     </span>
@@ -223,6 +213,9 @@ export default function App() {
   const [playlistId, setPlaylistId] = useState(() =>
     parseStoredValue(STORAGE_KEYS.playlistId, ""),
   );
+  const [isPlaylistVisible, setIsPlaylistVisible] = useState(() =>
+    parseStoredValue(STORAGE_KEYS.playlistVisible, true),
+  );
   const [isPlayerMuted, setIsPlayerMuted] = useState(true);
   const [playlistError, setPlaylistError] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
@@ -231,6 +224,9 @@ export default function App() {
   const [tasks, setTasks] = useState(() => parseStoredValue(STORAGE_KEYS.tasks, []));
   const [activeTaskIndex, setActiveTaskIndex] = useState(null);
   const [taskElapsedSeconds, setTaskElapsedSeconds] = useState(0);
+  const [draggedTaskId, setDraggedTaskId] = useState(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState(null);
+  const [isCompletionNoticeVisible, setIsCompletionNoticeVisible] = useState(false);
 
   const audioRef = useRef(null);
   const mainTimerAlertLoopRef = useRef(null);
@@ -274,6 +270,14 @@ export default function App() {
     }, 1500);
   }, [clearMainTimerAlertLoop, playAlertSound]);
 
+  const stopMainTimerAlert = useCallback(() => {
+    clearMainTimerAlertLoop();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, [clearMainTimerAlertLoop]);
+
   const resetTaskProgress = useCallback(() => {
     setActiveTaskIndex(null);
     setTaskElapsedSeconds(0);
@@ -283,17 +287,19 @@ export default function App() {
     setIsRunning(false);
     setIsPaused(false);
     setRemainingSeconds(0);
+    setIsCompletionNoticeVisible(false);
     resetTaskProgress();
-    clearMainTimerAlertLoop();
-  }, [clearMainTimerAlertLoop, resetTaskProgress]);
+    stopMainTimerAlert();
+  }, [resetTaskProgress, stopMainTimerAlert]);
 
   const resetTimer = useCallback(() => {
     setIsRunning(false);
     setIsPaused(false);
     setRemainingSeconds(initialDuration);
+    setIsCompletionNoticeVisible(false);
     resetTaskProgress();
-    clearMainTimerAlertLoop();
-  }, [clearMainTimerAlertLoop, initialDuration, resetTaskProgress]);
+    stopMainTimerAlert();
+  }, [initialDuration, resetTaskProgress, stopMainTimerAlert]);
 
   const applyDuration = useCallback(
     (hours, minutes) => {
@@ -304,10 +310,11 @@ export default function App() {
       setRemainingSeconds(totalSeconds);
       setIsRunning(false);
       setIsPaused(false);
+      setIsCompletionNoticeVisible(false);
       resetTaskProgress();
-      clearMainTimerAlertLoop();
+      stopMainTimerAlert();
     },
-    [clearMainTimerAlertLoop, resetTaskProgress],
+    [resetTaskProgress, stopMainTimerAlert],
   );
 
   const applyQuickPreset = useCallback(
@@ -334,7 +341,8 @@ export default function App() {
       return;
     }
 
-    clearMainTimerAlertLoop();
+    setIsCompletionNoticeVisible(false);
+    stopMainTimerAlert();
 
     if (inputDuration > 0 && inputDuration !== initialDuration) {
       setInitialDuration(inputDuration);
@@ -352,7 +360,6 @@ export default function App() {
     setIsRunning(true);
     setIsPaused(false);
   }, [
-    clearMainTimerAlertLoop,
     hoursInput,
     initialDuration,
     isPaused,
@@ -360,8 +367,14 @@ export default function App() {
     minutesInput,
     remainingSeconds,
     resetTaskProgress,
+    stopMainTimerAlert,
     tasks.length,
   ]);
+
+  const dismissCompletionNotice = useCallback(() => {
+    setIsCompletionNoticeVisible(false);
+    stopMainTimerAlert();
+  }, [stopMainTimerAlert]);
 
   const togglePause = useCallback(() => {
     if (!isRunning) {
@@ -413,6 +426,72 @@ export default function App() {
     },
     [activeTaskIndex, tasks],
   );
+
+  const moveTaskToIndex = useCallback(
+    (taskId, toIndex) => {
+      const fromIndex = tasks.findIndex((task) => task.id === taskId);
+      if (fromIndex === -1 || toIndex < 0 || toIndex >= tasks.length || fromIndex === toIndex) {
+        return;
+      }
+
+      setTasks((currentTasks) => {
+        const nextTasks = [...currentTasks];
+        const [movedTask] = nextTasks.splice(fromIndex, 1);
+        nextTasks.splice(toIndex, 0, movedTask);
+        return nextTasks;
+      });
+
+      setActiveTaskIndex((index) => {
+        if (index === null) {
+          return null;
+        }
+        if (index === fromIndex) {
+          return toIndex;
+        }
+        if (fromIndex < toIndex && index > fromIndex && index <= toIndex) {
+          return index - 1;
+        }
+        if (fromIndex > toIndex && index >= toIndex && index < fromIndex) {
+          return index + 1;
+        }
+        return index;
+      });
+    },
+    [tasks],
+  );
+
+  const handleTaskDragStart = useCallback((taskId) => {
+    setDraggedTaskId(taskId);
+    setDragOverTaskId(taskId);
+  }, []);
+
+  const handleTaskDragOver = useCallback((event, taskId) => {
+    event.preventDefault();
+    if (draggedTaskId && draggedTaskId !== taskId) {
+      setDragOverTaskId(taskId);
+    }
+  }, [draggedTaskId]);
+
+  const handleTaskDrop = useCallback(
+    (taskId) => {
+      if (!draggedTaskId || draggedTaskId === taskId) {
+        setDraggedTaskId(null);
+        setDragOverTaskId(null);
+        return;
+      }
+
+      const toIndex = tasks.findIndex((task) => task.id === taskId);
+      moveTaskToIndex(draggedTaskId, toIndex);
+      setDraggedTaskId(null);
+      setDragOverTaskId(null);
+    },
+    [draggedTaskId, moveTaskToIndex, tasks],
+  );
+
+  const clearTaskDragState = useCallback(() => {
+    setDraggedTaskId(null);
+    setDragOverTaskId(null);
+  }, []);
 
   const applyPlaylist = useCallback(() => {
     const extractedPlaylistId = getPlaylistId(playlistInput);
@@ -507,13 +586,13 @@ export default function App() {
     audioRef.current.preload = "auto";
 
     return () => {
-      clearMainTimerAlertLoop();
+      stopMainTimerAlert();
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
       }
     };
-  }, [clearMainTimerAlertLoop]);
+  }, [stopMainTimerAlert]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.darkMode, JSON.stringify(isDarkMode));
@@ -534,6 +613,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.playlistId, JSON.stringify(playlistId));
   }, [playlistId]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.playlistVisible, JSON.stringify(isPlaylistVisible));
+  }, [isPlaylistVisible]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = isDarkMode ? "dark" : "light";
@@ -676,6 +759,7 @@ export default function App() {
           setIsRunning(false);
           setIsPaused(false);
           resetTaskProgress();
+          setIsCompletionNoticeVisible(true);
           startMainTimerAlertLoop();
           return 0;
         }
@@ -730,8 +814,8 @@ export default function App() {
     tasks,
   ]);
 
-  const countdownText = useMemo(
-    () => formatCountdown(remainingSeconds),
+  const countdownSegments = useMemo(
+    () => formatCountdownSegments(remainingSeconds),
     [remainingSeconds],
   );
 
@@ -760,17 +844,20 @@ export default function App() {
     : 0;
 
   const appBackgroundStyle = backgroundImage
-    ? { backgroundImage: `url(${backgroundImage})` }
+    ? {
+        backgroundImage: `linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)), url(${backgroundImage})`,
+        backgroundBlendMode: "luminosity",
+      }
     : undefined;
 
   const outlineButtonClass =
-    "rounded-lg border border-[var(--border-color)] px-3 py-2 text-sm text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]";
+    "brutalist-button rounded-lg border border-[var(--border-color)] px-3 py-2 text-sm text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]";
   const filledButtonClass =
-    "rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-text)] transition hover:bg-[var(--accent-hover)]";
+    "brutalist-button rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-text)] transition hover:bg-[var(--accent-hover)]";
   const inputClass =
-    "w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none ring-0 transition placeholder:text-[var(--text-muted)]/80 focus:border-[var(--accent)]";
+    "brutalist-input w-full rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none ring-0 transition placeholder:text-[var(--text-muted)]/80 focus:border-[var(--accent)]";
   const timerInputClass =
-    "rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-center text-lg text-[var(--text-primary)] outline-none transition focus:border-[var(--accent)]";
+    "brutalist-input rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2 text-center text-lg text-[var(--text-primary)] outline-none transition focus:border-[var(--accent)]";
 
   return (
     <main
@@ -779,44 +866,64 @@ export default function App() {
       }`}
       style={appBackgroundStyle}
     >
-      <section className="fixed left-3 top-3 z-40 w-[min(24rem,calc(100vw-1.5rem))] rounded-2xl border border-[var(--border-color)] bg-[var(--shell-bg)] p-3 shadow-2xl backdrop-blur-md">
-        <p className="text-xs uppercase tracking-widest text-[var(--text-heading)]">Playlist</p>
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-          <input
-            className={inputClass}
-            onChange={(event) => setPlaylistInput(event.target.value)}
-            placeholder="Paste YouTube playlist URL"
-            value={playlistInput}
-          />
-          <button
-            className={filledButtonClass}
-            onClick={applyPlaylist}
-            type="button"
-          >
-            Load
-          </button>
-        </div>
-        {playlistError ? (
-          <p className="mt-2 text-xs text-[var(--danger-text)]">{playlistError}</p>
-        ) : null}
-        {youtubeEmbedSrc ? (
-          <div className="relative mt-2 aspect-video overflow-hidden rounded-xl border border-[var(--border-color)]">
-            <iframe
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              className="h-full w-full"
-              src={youtubeEmbedSrc}
-              title="Focus playlist player"
-            />
+      {isPlaylistVisible ? (
+        <section className="brutalist-panel fixed left-3 top-3 z-40 w-[min(24rem,calc(100vw-1.5rem))] rounded-2xl border border-[var(--border-color)] bg-[var(--shell-bg)] p-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-widest text-[var(--text-heading)]">Playlist</p>
+            <button
+              aria-label="Close playlist"
+              className={`${outlineButtonClass} px-2 py-1 text-xs`}
+              onClick={() => setIsPlaylistVisible(false)}
+              type="button"
+            >
+              Close
+            </button>
           </div>
-        ) : (
-          <p className="mt-2 text-xs text-[var(--text-muted)]">
-            Paste a playlist URL with <code>list=</code>, then click Load.
-          </p>
-        )}
-      </section>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <input
+              className={inputClass}
+              onChange={(event) => setPlaylistInput(event.target.value)}
+              placeholder="Paste YouTube playlist URL"
+              value={playlistInput}
+            />
+            <button
+              className={filledButtonClass}
+              onClick={applyPlaylist}
+              type="button"
+            >
+              Load
+            </button>
+          </div>
+          {playlistError ? (
+            <p className="mt-2 text-xs text-[var(--danger-text)]">{playlistError}</p>
+          ) : null}
+          {youtubeEmbedSrc ? (
+            <div className="brutalist-media relative mt-2 aspect-video overflow-hidden rounded-xl border border-[var(--border-color)]">
+              <iframe
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="h-full w-full"
+                src={youtubeEmbedSrc}
+                title="Focus playlist player"
+              />
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
+              Paste a playlist URL with <code>list=</code>, then click Load.
+            </p>
+          )}
+        </section>
+      ) : (
+        <button
+          className={`${outlineButtonClass} fixed left-3 top-3 z-40`}
+          onClick={() => setIsPlaylistVisible(true)}
+          type="button"
+        >
+          Open playlist
+        </button>
+      )}
 
-      <div className="mx-auto max-w-6xl rounded-3xl bg-[var(--shell-bg)] p-4 shadow-2xl backdrop-blur-md sm:p-6">
+      <div className="brutalist-panel mx-auto w-[min(38rem,calc(100vw-2rem))] rounded-3xl bg-[var(--shell-bg)] p-4 sm:w-[min(38rem,calc(100vw-3rem))] sm:p-6">
         <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex flex-wrap items-center justify-end gap-2">
             <ThemeToggle isDarkMode={isDarkMode} onToggle={() => setIsDarkMode((enabled) => !enabled)} />
@@ -842,33 +949,33 @@ export default function App() {
               {isFullscreen ? (
                 <svg
                   aria-hidden="true"
-                  className="h-5 w-5"
+                  className="block h-5 w-5"
                   fill="none"
                   viewBox="0 0 24 24"
                   xmlns="http://www.w3.org/2000/svg"
                 >
                   <path
-                    d="M9 3H5v4M15 3h4v4M9 21H5v-4M19 17v4h-4"
+                    d="M9 9 5.25 5.25M9 9V5.25M9 9H5.25m9 0 3.75-3.75M15 9V5.25M15 9h3.75M9 15l-3.75 3.75M9 15v3.75M9 15H5.25m9 0 3.75 3.75M15 15v3.75M15 15h3.75"
                     stroke="currentColor"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                   />
                 </svg>
               ) : (
                 <svg
                   aria-hidden="true"
-                  className="h-5 w-5"
+                  className="block h-5 w-5"
                   fill="none"
                   viewBox="0 0 24 24"
                   xmlns="http://www.w3.org/2000/svg"
                 >
                   <path
-                    d="M3 9V5h4M15 5h4v4M9 19H5v-4M21 15v4h-4"
+                    d="M3.75 9V5.25H7.5M3.75 5.25 8.25 9.75M20.25 9V5.25H16.5M20.25 5.25 15.75 9.75M3.75 15v3.75H7.5M3.75 18.75l4.5-4.5M20.25 15v3.75H16.5M20.25 18.75l-4.5-4.5"
                     stroke="currentColor"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                   />
                 </svg>
               )}
@@ -876,13 +983,14 @@ export default function App() {
           </div>
         </div>
 
-        <section className="rounded-2xl border border-[var(--border-color)] bg-[var(--panel-bg)] px-4 py-8 text-center shadow-xl sm:px-6">
+        <section className="brutalist-panel rounded-2xl border border-[var(--border-color)] bg-[var(--panel-bg)] px-4 py-8 text-center sm:px-6">
           <p className="mb-4 text-xs uppercase tracking-[0.35em] text-[var(--text-heading)]">Focus Clock</p>
-          <FlipCountdown text={countdownText} isRunning={isRunning && !isPaused} />
+          <FlipCountdown segments={countdownSegments} isRunning={isRunning && !isPaused} />
 
           <div className="mt-8 grid gap-3 md:grid-cols-2">
             <input
               className={timerInputClass}
+              disabled={isRunning}
               min="0"
               onChange={(event) => setHoursInput(event.target.value)}
               placeholder="Hours"
@@ -891,6 +999,7 @@ export default function App() {
             />
             <input
               className={timerInputClass}
+              disabled={isRunning}
               min="0"
               onChange={(event) => setMinutesInput(event.target.value)}
               placeholder="Minutes"
@@ -918,14 +1027,14 @@ export default function App() {
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
             <button
-              className="rounded-lg bg-[var(--accent)] px-5 py-2 font-semibold text-[var(--accent-text)] transition hover:bg-[var(--accent-hover)]"
+              className="brutalist-button rounded-lg bg-[var(--accent)] px-5 py-2 font-semibold text-[var(--accent-text)] transition hover:bg-[var(--accent-hover)]"
               onClick={startTimer}
               type="button"
             >
               Start
             </button>
             <button
-              className="rounded-lg border border-[var(--border-color)] px-5 py-2 text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              className="brutalist-button rounded-lg border border-[var(--border-color)] px-5 py-2 text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
               onClick={togglePause}
               type="button"
             >
@@ -963,7 +1072,7 @@ export default function App() {
               </span>
             </button>
             <button
-              className="rounded-lg border border-[var(--danger-border)] px-5 py-2 text-[var(--danger-text)] transition hover:border-[var(--accent)] hover:text-[var(--text-primary)]"
+              className="brutalist-button rounded-lg border border-[var(--danger-border)] px-5 py-2 text-[var(--danger-text)] transition hover:border-[var(--accent)] hover:text-[var(--text-primary)]"
               onClick={stopTimer}
               type="button"
             >
@@ -990,7 +1099,7 @@ export default function App() {
               </span>
             </button>
             <button
-              className="rounded-lg border border-[var(--border-color)] px-5 py-2 text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              className="brutalist-button rounded-lg border border-[var(--border-color)] px-5 py-2 text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
               onClick={resetTimer}
               type="button"
             >
@@ -1023,7 +1132,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-2xl border border-[var(--border-color)] bg-[var(--panel-bg)] p-4 sm:p-6">
+        <section className="brutalist-panel mt-6 rounded-2xl border border-[var(--border-color)] bg-[var(--panel-bg)] p-4 sm:p-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
               <label className="mb-1 block text-xs uppercase tracking-wider text-[var(--text-heading)]" htmlFor="task-name">
@@ -1033,7 +1142,7 @@ export default function App() {
                 className={inputClass}
                 id="task-name"
                 onChange={(event) => setTaskTitleInput(event.target.value)}
-                placeholder="Write feature spec"
+                placeholder="Add new task"
                 value={taskTitleInput}
               />
             </div>
@@ -1068,13 +1177,24 @@ export default function App() {
             ) : (
               tasks.map((task, index) => {
                 const isActive = activeTaskIndex === index && isRunning;
+                const isDragged = draggedTaskId === task.id;
+                const isDropTarget = dragOverTaskId === task.id && draggedTaskId !== task.id;
                 return (
                   <div
-                    className={`relative overflow-hidden rounded-xl border px-3 py-3 transition ${
+                    className={`task-card relative overflow-hidden rounded-xl border px-3 py-3 transition ${
                       isActive
                         ? "border-[var(--active-border)] bg-[var(--active-bg)]"
                         : "border-[var(--border-color)] bg-[var(--task-row-bg)]"
-                    }`}
+                    } ${isDragged ? "task-card-dragging" : ""} ${isDropTarget ? "task-card-drop-target" : ""}`}
+                    draggable
+                    onDragEnd={clearTaskDragState}
+                    onDragOver={(event) => handleTaskDragOver(event, task.id)}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", task.id);
+                      handleTaskDragStart(task.id);
+                    }}
+                    onDrop={() => handleTaskDrop(task.id)}
                     key={task.id}
                   >
                     <div
@@ -1082,17 +1202,38 @@ export default function App() {
                       style={{ width: isActive ? `${activeTaskProgressPercentage}%` : "0%" }}
                     />
                     <div className="relative z-10 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-[var(--text-primary)]">{task.title}</p>
-                        <p className="text-xs text-[var(--text-muted)]">~{task.minutes} minutes</p>
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-center justify-center text-[var(--text-muted)]">
+                          <svg
+                            aria-hidden="true"
+                            className="h-4 w-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path
+                              d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="3"
+                            />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--text-primary)]">{task.title}</p>
+                          <p className="text-xs text-[var(--text-muted)]">~{task.minutes} minutes</p>
+                        </div>
                       </div>
-                      <button
-                        className="rounded-md border border-[var(--border-color)] px-2 py-1 text-xs text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                        onClick={() => removeTask(task.id)}
-                        type="button"
-                      >
-                        Remove
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="brutalist-button rounded-md border border-[var(--border-color)] px-2 py-1 text-xs text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                          onClick={() => removeTask(task.id)}
+                          type="button"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1101,6 +1242,23 @@ export default function App() {
           </div>
         </section>
       </div>
+      {isCompletionNoticeVisible ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="brutalist-panel w-full max-w-md rounded-2xl border border-[var(--border-color)] bg-[var(--panel-bg)] p-6 text-center">
+            <p className="text-xs uppercase tracking-[0.35em] text-[var(--text-heading)]">Time is up</p>
+            <h2 className="mt-3 text-2xl font-semibold text-[var(--text-primary)]">
+              All tasks are completed!
+            </h2>
+            <button
+              className={`${filledButtonClass} mt-5 min-w-28 justify-center`}
+              onClick={dismissCompletionNotice}
+              type="button"
+            >
+              yey
+            </button>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
