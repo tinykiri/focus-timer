@@ -198,6 +198,55 @@ async function clearOfflineBackgroundImage() {
   }
 }
 
+async function requestNotificationPermission() {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return "unsupported";
+  }
+
+  if (Notification.permission === "granted" || Notification.permission === "denied") {
+    return Notification.permission;
+  }
+
+  try {
+    return await Notification.requestPermission();
+  } catch {
+    return Notification.permission;
+  }
+}
+
+async function showTimerCompleteNotification() {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return;
+  }
+
+  if (Notification.permission !== "granted") {
+    return;
+  }
+
+  const title = "Focus Timer";
+  const options = {
+    body: "Time's up! Your focus session is complete.",
+    icon: "/pwa-192.png",
+    badge: "/pwa-192.png",
+    tag: "focus-timer-complete",
+    renotify: true,
+    requireInteraction: true,
+    silent: false,
+  };
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification(title, options);
+      return;
+    }
+
+    new Notification(title, options);
+  } catch {
+    // Ignore notification errors; the in-app completion notice still shows.
+  }
+}
+
 function FlipCountdown({ segments, isRunning }) {
   const previousSegmentsRef = useRef(segments);
   const previousSegments = previousSegmentsRef.current || segments;
@@ -472,6 +521,8 @@ export default function App() {
 
     setIsCompletionNoticeVisible(false);
     stopMainTimerAlert();
+
+    requestNotificationPermission().catch(() => {});
 
     if (inputDuration > 0 && inputDuration !== initialDuration) {
       setInitialDuration(inputDuration);
@@ -922,6 +973,7 @@ export default function App() {
           resetTaskProgress();
           setIsCompletionNoticeVisible(true);
           startMainTimerAlertLoop();
+          showTimerCompleteNotification();
           return 0;
         }
 
