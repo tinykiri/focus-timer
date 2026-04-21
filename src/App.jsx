@@ -4,6 +4,7 @@ import { supabase } from "./lib/supabase";
 const STORAGE_KEYS = {
   darkMode: "focus-timer-dark-mode",
   backgroundImagePath: "focus-timer-background-image-path",
+  backgroundImageUrl: "focus-timer-background-image-url",
   tasks: "focus-timer-tasks",
   playlistInput: "focus-timer-playlist-input",
   playlistId: "focus-timer-playlist-id",
@@ -11,6 +12,9 @@ const STORAGE_KEYS = {
 };
 const BACKGROUND_BUCKET =
   import.meta.env.VITE_SUPABASE_STORAGE_BUCKET || "focus-backgrounds";
+const OFFLINE_IMAGE_DB_NAME = "focus-timer-offline-assets";
+const OFFLINE_IMAGE_STORE_NAME = "images";
+const OFFLINE_BACKGROUND_IMAGE_KEY = "background";
 
 const INITIAL_HOURS = 0;
 const INITIAL_MINUTES = 25;
@@ -69,6 +73,129 @@ function getTotalSeconds(hours, minutes) {
   const safeHours = Math.max(0, Number(hours) || 0);
   const safeMinutes = Math.max(0, Number(minutes) || 0);
   return Math.floor(safeHours * 3600 + safeMinutes * 60);
+}
+
+function readAsDataUrl(fileOrBlob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    };
+
+    reader.onerror = () => {
+      reject(new Error("Could not read image file."));
+    };
+
+    reader.readAsDataURL(fileOrBlob);
+  });
+}
+
+function openOfflineImageDb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      resolve(null);
+      return;
+    }
+
+    const request = indexedDB.open(OFFLINE_IMAGE_DB_NAME, 1);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+
+      if (!database.objectStoreNames.contains(OFFLINE_IMAGE_STORE_NAME)) {
+        database.createObjectStore(OFFLINE_IMAGE_STORE_NAME);
+      }
+    };
+
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+
+    request.onerror = () => {
+      reject(request.error || new Error("Could not open offline image database."));
+    };
+  });
+}
+
+async function saveOfflineBackgroundImage(fileOrBlob) {
+  const database = await openOfflineImageDb();
+  if (!database) {
+    return;
+  }
+
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(OFFLINE_IMAGE_STORE_NAME, "readwrite");
+
+      transaction.oncomplete = () => {
+        resolve();
+      };
+
+      transaction.onerror = () => {
+        reject(transaction.error || new Error("Could not save offline background image."));
+      };
+
+      transaction.objectStore(OFFLINE_IMAGE_STORE_NAME).put(fileOrBlob, OFFLINE_BACKGROUND_IMAGE_KEY);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function loadOfflineBackgroundImage() {
+  const database = await openOfflineImageDb();
+  if (!database) {
+    return "";
+  }
+
+  try {
+    const imageBlob = await new Promise((resolve, reject) => {
+      const transaction = database.transaction(OFFLINE_IMAGE_STORE_NAME, "readonly");
+      const request = transaction.objectStore(OFFLINE_IMAGE_STORE_NAME).get(OFFLINE_BACKGROUND_IMAGE_KEY);
+
+      request.onsuccess = () => {
+        resolve(request.result || null);
+      };
+
+      request.onerror = () => {
+        reject(request.error || new Error("Could not load offline background image."));
+      };
+    });
+
+    if (!imageBlob) {
+      return "";
+    }
+
+    return readAsDataUrl(imageBlob);
+  } finally {
+    database.close();
+  }
+}
+
+async function clearOfflineBackgroundImage() {
+  const database = await openOfflineImageDb();
+  if (!database) {
+    return;
+  }
+
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(OFFLINE_IMAGE_STORE_NAME, "readwrite");
+
+      transaction.oncomplete = () => {
+        resolve();
+      };
+
+      transaction.onerror = () => {
+        reject(transaction.error || new Error("Could not clear offline background image."));
+      };
+
+      transaction.objectStore(OFFLINE_IMAGE_STORE_NAME).delete(OFFLINE_BACKGROUND_IMAGE_KEY);
+    });
+  } finally {
+    database.close();
+  }
 }
 
 function FlipCountdown({ segments, isRunning }) {
@@ -197,7 +324,9 @@ export default function App() {
   const [backgroundImagePath, setBackgroundImagePath] = useState(() =>
     parseStoredValue(STORAGE_KEYS.backgroundImagePath, ""),
   );
-  const [backgroundImage, setBackgroundImage] = useState("");
+  const [backgroundImage, setBackgroundImage] = useState(() =>
+    parseStoredValue(STORAGE_KEYS.backgroundImageUrl, ""),
+  );
   const [supabaseUserId, setSupabaseUserId] = useState("");
   const [supabaseAuthStatus, setSupabaseAuthStatus] = useState(() =>
     supabase ? "initializing" : "misconfigured",
@@ -521,6 +650,7 @@ export default function App() {
 
       const fileExtension = selectedFile.name.split(".").pop() || "jpg";
       const filePath = `${supabaseUserId}/background-${Date.now()}.${fileExtension}`;
+      await saveOfflineBackgroundImage(selectedFile);
 
       const { error: uploadError } = await supabase.storage
         .from(BACKGROUND_BUCKET)
@@ -601,6 +731,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.backgroundImagePath, JSON.stringify(backgroundImagePath));
   }, [backgroundImagePath]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.backgroundImageUrl, JSON.stringify(backgroundImage));
+  }, [backgroundImage]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(tasks));
@@ -700,6 +834,7 @@ export default function App() {
   useEffect(() => {
     if (!backgroundImagePath) {
       setBackgroundImage("");
+      clearOfflineBackgroundImage().catch(() => {});
       return;
     }
 
@@ -710,6 +845,7 @@ export default function App() {
     const imageOwnerId = backgroundImagePath.split("/")[0];
     if (imageOwnerId !== supabaseUserId) {
       setBackgroundImage("");
+      clearOfflineBackgroundImage().catch(() => {});
       setBackgroundImagePath("");
       return;
     }
@@ -717,16 +853,41 @@ export default function App() {
     let isMounted = true;
 
     const fetchSignedUrl = async () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        const offlineImageDataUrl = await loadOfflineBackgroundImage().catch(() => "");
+        if (isMounted && offlineImageDataUrl) {
+          setBackgroundImage(offlineImageDataUrl);
+        }
+        return;
+      }
+
       const { data, error } = await supabase.storage
         .from(BACKGROUND_BUCKET)
         .createSignedUrl(backgroundImagePath, 60 * 60 * 24 * 30);
 
       if (error) {
+        const offlineImageDataUrl = await loadOfflineBackgroundImage().catch(() => "");
+        if (isMounted && offlineImageDataUrl) {
+          setBackgroundImage(offlineImageDataUrl);
+        }
         return;
       }
 
       if (isMounted) {
         setBackgroundImage(data.signedUrl);
+      }
+
+      try {
+        const imageResponse = await fetch(data.signedUrl);
+
+        if (!imageResponse.ok) {
+          return;
+        }
+
+        const imageBlob = await imageResponse.blob();
+        await saveOfflineBackgroundImage(imageBlob);
+      } catch {
+        // Keep the previous offline background copy if persistence fails.
       }
     };
 
@@ -818,6 +979,18 @@ export default function App() {
     () => formatCountdownSegments(remainingSeconds),
     [remainingSeconds],
   );
+
+  useEffect(() => {
+    const baseTitle = "Focus Timer";
+    const [hours, minutes, seconds] = countdownSegments;
+    const timerText = hours === "00" ? `${minutes}:${seconds}` : `${hours}:${minutes}:${seconds}`;
+
+    document.title = `${timerText} - ${baseTitle}`;
+
+    return () => {
+      document.title = baseTitle;
+    };
+  }, [countdownSegments]);
 
   const youtubeEmbedSrc = useMemo(() => {
     if (!playlistId) {
