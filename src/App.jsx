@@ -443,7 +443,22 @@ export default function App() {
   const startMainTimerAlertLoop = useCallback(() => {
     clearMainTimerAlertLoop();
     playAlertSound();
+
+    let elapsedMs = 0;
+    const maxDurationMs = 60 * 1000;
+
     mainTimerAlertLoopRef.current = window.setInterval(() => {
+      elapsedMs += 1500;
+
+      if (elapsedMs >= maxDurationMs) {
+        clearMainTimerAlertLoop();
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+        }
+        return;
+      }
+
       playAlertSound();
     }, 1500);
   }, [clearMainTimerAlertLoop, playAlertSound]);
@@ -482,15 +497,15 @@ export default function App() {
   const applyDuration = useCallback(
     (hours, minutes) => {
       const totalSeconds = getTotalSeconds(hours, minutes);
+      setIsRunning(false);
+      setIsPaused(false);
+      setIsCompletionNoticeVisible(false);
+      stopMainTimerAlert();
+      resetTaskProgress();
       setHoursInput(Math.max(0, Number(hours) || 0));
       setMinutesInput(Math.max(0, Number(minutes) || 0));
       setInitialDuration(totalSeconds);
       setRemainingSeconds(totalSeconds);
-      setIsRunning(false);
-      setIsPaused(false);
-      setIsCompletionNoticeVisible(false);
-      resetTaskProgress();
-      stopMainTimerAlert();
     },
     [resetTaskProgress, stopMainTimerAlert],
   );
@@ -498,8 +513,15 @@ export default function App() {
   const applyQuickPreset = useCallback(
     (minutes) => {
       applyDuration(0, minutes);
+      requestNotificationPermission().catch(() => {});
+      if (tasks.length > 0) {
+        setActiveTaskIndex(0);
+        setTaskElapsedSeconds(0);
+      }
+      setIsPaused(false);
+      setIsRunning(true);
     },
-    [applyDuration],
+    [applyDuration, tasks.length],
   );
 
   const startTimer = useCallback(() => {
@@ -1086,7 +1108,7 @@ export default function App() {
 
   return (
     <main
-      className={`flex min-h-screen items-start justify-center bg-[var(--app-bg)] bg-cover bg-center bg-no-repeat px-4 py-10 text-[var(--text-primary)] transition-colors sm:px-6 sm:py-64 lg:items-center lg:py-8 ${
+      className={`flex min-h-screen flex-col items-center bg-[var(--app-bg)] bg-cover bg-center bg-no-repeat px-4 py-10 text-[var(--text-primary)] transition-colors sm:px-6 sm:py-64 lg:py-8 ${
         isDarkMode ? "dark" : ""
       }`}
       style={appBackgroundStyle}
@@ -1150,7 +1172,8 @@ export default function App() {
         )}
       </div>
 
-      <div className="brutalist-panel mx-auto w-[min(38rem,calc(100vw-2rem))] rounded-3xl bg-[var(--shell-bg)] p-4 sm:w-[min(38rem,calc(100vw-3rem))] sm:p-6">
+      <div className="flex w-full flex-1 items-start justify-center lg:items-center">
+        <div className="brutalist-panel mx-auto w-[min(38rem,calc(100vw-2rem))] rounded-3xl bg-[var(--shell-bg)] p-4 sm:w-[min(38rem,calc(100vw-3rem))] sm:p-6">
         <div className="mb-4 sm:hidden">
           {isPlaylistVisible ? (
             <section className="brutalist-panel rounded-2xl border border-[var(--border-color)] bg-[var(--panel-bg)] p-3">
@@ -1526,7 +1549,11 @@ export default function App() {
             )}
           </div>
         </section>
+        </div>
       </div>
+      <footer className="w-full pt-6 text-center text-xs text-[var(--text-muted)]">
+        created by @tiny.kiri
+      </footer>
       {isCompletionNoticeVisible ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
           <div className="brutalist-panel w-full max-w-md rounded-2xl border border-[var(--border-color)] bg-[var(--panel-bg)] p-6 text-center">

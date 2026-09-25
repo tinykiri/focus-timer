@@ -49,9 +49,9 @@
   --countdown-line: #ffffff;
   --countdown-edge: #ffffff;
   --shadow-color: #ffffff;
-  --toggle-track-bg: #ffffff;
-  --toggle-icon-color: #000000;
-  --toggle-thumb-bg: #000000;
+  --toggle-track-bg: #000000;
+  --toggle-icon-color: #ffffff;
+  --toggle-thumb-bg: rgba(255, 255, 255, 0.22);
   --toggle-thumb-border: #ffffff;
   --input-inner-border: #ffffff;
 }
@@ -80,9 +80,9 @@
   --countdown-line: #000000;
   --countdown-edge: #000000;
   --shadow-color: #000000;
-  --toggle-track-bg: #000000;
-  --toggle-icon-color: #ffffff;
-  --toggle-thumb-bg: #ffffff;
+  --toggle-track-bg: #ffffff;
+  --toggle-icon-color: #000000;
+  --toggle-thumb-bg: rgba(0, 0, 0, 0.12);
   --toggle-thumb-border: #000000;
   --input-inner-border: #000000;
 }
@@ -235,6 +235,19 @@ body {
   box-shadow: 5px 5px 0 var(--shadow-color);
 }
 
+button:not(:disabled) {
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+button:not(:disabled):hover {
+  opacity: 0.88;
+}
+
+button:not(:disabled):active {
+  transform: translate(0, 1px);
+}
+
 .brutalist-input {
   border-width: 2px;
   border-radius: 0.2rem;
@@ -281,10 +294,10 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
-  width: 3.35rem;
+  width: 3.4rem;
   height: 1.9rem;
   border-radius: 0.2rem;
-  padding: 0 0.3rem;
+  padding: 0.2rem;
   background: var(--toggle-track-bg);
 }
 
@@ -292,6 +305,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
   color: var(--accent-text);
   opacity: 0.9;
   z-index: 1;
@@ -309,17 +324,19 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   width: 1.5rem;
   height: 1.5rem;
   border-radius: 0.15rem;
   border: 2px solid var(--toggle-thumb-border);
   background: var(--toggle-thumb-bg);
   box-shadow: none;
+  pointer-events: none;
   transition: transform 220ms ease, background 180ms ease, border-color 180ms ease;
 }
 
 .theme-toggle-thumb.is-dark {
-  transform: translateX(1.45rem);
+  transform: translateX(1.5rem);
 }
 
 .theme-toggle-thumb.is-light {
