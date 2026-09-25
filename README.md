@@ -2,7 +2,7 @@
 
 A minimal focus timer app.
 
-![Dark mode](screenshots/dark-mode.png)
+![Playlist](screenshots/playlist.jpg)
 
 ## Features
 
@@ -17,7 +17,7 @@ A minimal focus timer app.
 - Installable PWA — works fully offline
 
 ![Light mode](screenshots/light-mode.jpg)
-![Playlist](screenshots/playlist.jpg)
+![Dark mode](screenshots/dark-mode.png)
 
 ## Run
 
